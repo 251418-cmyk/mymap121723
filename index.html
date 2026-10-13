@@ -1,11 +1,10 @@
 
-
 <!DOCTYPE html>
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <h1>주변 지하철역 근처 주요 시설</h1>
+  <title>주변 지하철역 근처 주요 시설</title>
 
   <!-- 카카오맵 SDK와 장소 검색 기능 불러오기 -->
   <script src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=0284f30d15a21cd8c8d334026cc26d3b&libraries=services&autoload=false"></script>
@@ -45,6 +44,7 @@
     h1 {
       margin: 0;
       font-size: 24px;
+      line-height: 1.4;
     }
 
     .description {
@@ -54,10 +54,10 @@
       line-height: 1.6;
     }
 
-    /* 시설 종류를 선택하는 탭 */
+    /* 음식점과 카페 탭 */
     .tab-container {
       display: flex;
-      gap: 6px;
+      gap: 8px;
     }
 
     .tab-button {
@@ -67,11 +67,11 @@
       border-radius: 8px;
       background: #fff;
       color: #444;
-      font-size: 13px;
+      font-size: 14px;
       cursor: pointer;
     }
 
-    /* 선택된 탭 강조 */
+    /* 선택한 탭 강조 */
     .tab-button.active {
       background: #2878e8;
       border-color: #2878e8;
@@ -103,7 +103,7 @@
       cursor: pointer;
     }
 
-    /* 현재 위치 이동 버튼 */
+    /* 현재 위치 버튼 */
     #locationButton {
       width: 100%;
       padding: 11px;
@@ -116,6 +116,16 @@
     #status {
       margin: 0;
       color: #666;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    /* 가장 가까운 지하철역 정보 */
+    #stationInfo {
+      padding: 10px;
+      border-radius: 8px;
+      background: #fff9db;
+      color: #665000;
       font-size: 13px;
       line-height: 1.6;
     }
@@ -134,8 +144,10 @@
       cursor: pointer;
     }
 
-    .result-item:hover {
+    .result-item:hover,
+    .result-item:focus {
       background: #f3f7ff;
+      outline: none;
     }
 
     .place-name {
@@ -192,7 +204,7 @@
       }
 
       .tab-button {
-        font-size: 11px;
+        font-size: 12px;
         padding: 10px 2px;
       }
 
@@ -212,28 +224,19 @@
 
     <!-- 왼쪽: 시설 검색 및 결과 -->
     <aside class="sidebar">
-      <h1>주변 시설 찾기</h1>
+      <h1>주변 지하철역 근처 주요 시설</h1>
 
       <p class="description">
-        현재 위치 주변의 관광명소, 음식점, 카페를 찾아보세요.
+        현재 위치에서 가장 가까운 지하철역 주변의 음식점과 카페를 찾아보세요.
       </p>
 
-      <!-- 시설 종류를 선택하는 탭 3개 -->
+      <!-- 음식점과 카페를 선택하는 탭 2개 -->
       <div class="tab-container" role="group" aria-label="시설 종류">
         <button
           type="button"
           class="tab-button active"
-          data-category="AT4"
-          aria-pressed="true"
-        >
-          관광명소
-        </button>
-
-        <button
-          type="button"
-          class="tab-button"
           data-category="FD6"
-          aria-pressed="false"
+          aria-pressed="true"
         >
           음식점
         </button>
@@ -248,7 +251,7 @@
         </button>
       </div>
 
-      <!-- 기존 키워드 검색 기능 유지 -->
+      <!-- 장소명이나 키워드로 검색 -->
       <form id="searchForm" class="search-form">
         <input
           id="searchInput"
@@ -259,11 +262,15 @@
         <button id="searchButton" type="submit">검색</button>
       </form>
 
-      <!-- 현재 위치로 이동하는 버튼 -->
+      <!-- 현재 위치를 다시 확인하는 버튼 -->
       <button id="locationButton" type="button">
         현재 위치로 이동
       </button>
 
+      <!-- 가장 가까운 지하철역 표시 -->
+      <div id="stationInfo" hidden></div>
+
+      <!-- 검색 상태 표시 -->
       <p id="status" role="status" aria-live="polite">
         지도를 불러오는 중입니다.
       </p>
@@ -282,12 +289,12 @@
     let placesService = null;
     let currentPosition = null;
     let currentMarker = null;
+    let stationMarker = null;
+    let nearestStation = null;
     let placeMarkers = [];
     let infoWindow = null;
     let mapReady = false;
-    let activeCategory = "AT4";
-
-    // 검색 요청이 겹칠 때 이전 응답을 구분하기 위한 번호
+    let activeCategory = "FD6";
     let searchVersion = 0;
 
     // HTML 요소 가져오기
@@ -296,10 +303,11 @@
     const searchButton = document.getElementById("searchButton");
     const locationButton = document.getElementById("locationButton");
     const statusText = document.getElementById("status");
+    const stationInfo = document.getElementById("stationInfo");
     const resultList = document.getElementById("resultList");
     const tabButtons = document.querySelectorAll(".tab-button");
 
-    // 지도 SDK가 준비된 다음 초기화
+    // 카카오맵 SDK가 준비되면 지도 초기화
     window.addEventListener("load", function () {
       if (!window.kakao || !window.kakao.maps) {
         statusText.textContent =
@@ -320,7 +328,6 @@
           126.9786567
         );
 
-        // 지도 생성 및 확대 레벨 설정
         map = new kakao.maps.Map(
           document.getElementById("map"),
           {
@@ -329,18 +336,17 @@
           }
         );
 
-        // 지도에 연결된 장소 검색 서비스 생성
+        // 장소 검색 서비스 생성
         placesService = new kakao.maps.services.Places(map);
 
-        // 장소 정보를 보여 주는 팝업 생성
+        // 장소 이름과 주소를 보여 주는 팝업 생성
         infoWindow = new kakao.maps.InfoWindow({
           zIndex: 10
         });
 
         mapReady = true;
-        statusText.textContent = "현재 위치를 확인하고 있습니다.";
 
-        // 현재 위치 확인
+        // 현재 위치 확인 시작
         getCurrentLocation();
 
       } catch (error) {
@@ -350,7 +356,7 @@
       }
     }
 
-    // 파란색 또는 빨간색 사용자 지정 마커 이미지 생성
+    // 색상에 맞는 사용자 지정 마커 이미지 생성
     function createMarkerImage(color) {
       const svg = `
         <svg xmlns="http://www.w3.org/2000/svg"
@@ -367,7 +373,7 @@
         </svg>
       `;
 
-      // SVG를 카카오맵에서 사용할 수 있는 이미지로 변환
+      // SVG 이미지를 카카오맵 마커 이미지로 변환
       const imageUrl =
         "data:image/svg+xml;charset=utf-8," +
         encodeURIComponent(svg);
@@ -383,9 +389,7 @@
 
     // 현재 위치를 가져와 빨간색 마커로 표시
     function getCurrentLocation() {
-      if (!mapReady) {
-        return;
-      }
+      if (!mapReady) return;
 
       if (!navigator.geolocation) {
         statusText.textContent =
@@ -397,13 +401,15 @@
 
       navigator.geolocation.getCurrentPosition(
         function (position) {
-          // 현재 위치의 좌표 저장
+          // 이전 위치 검색 결과가 늦게 도착하지 않도록 요청 번호 갱신
+          searchVersion++;
+
+          // 현재 위치 좌표 저장
           currentPosition = new kakao.maps.LatLng(
             position.coords.latitude,
             position.coords.longitude
           );
 
-          // 지도 중심을 현재 위치로 이동
           map.setCenter(currentPosition);
           map.setLevel(5);
 
@@ -421,12 +427,15 @@
             zIndex: 5
           });
 
-          // 현재 선택된 탭의 주변 시설 검색
-          searchNearbyPlaces(activeCategory);
+          // 이전 역과 시설 결과 제거
+          clearResults();
+          clearStation();
+
+          // 현재 위치에서 가장 가까운 지하철역 검색
+          findNearestStation();
         },
 
         function (error) {
-          // 위치 확인 실패 이유 안내
           if (error.code === 1) {
             statusText.textContent =
               "위치 권한이 거부되었습니다. 브라우저 설정에서 허용해 주세요.";
@@ -450,57 +459,186 @@
       );
     }
 
+    // 두 좌표 사이의 거리를 미터 단위로 계산
+    function calculateDistance(lat1, lon1, lat2, lon2) {
+      const earthRadius = 6371000;
+      const toRadians = function (degrees) {
+        return degrees * Math.PI / 180;
+      };
+
+      const dLat = toRadians(lat2 - lat1);
+      const dLon = toRadians(lon2 - lon1);
+
+      const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(toRadians(lat1)) *
+        Math.cos(toRadians(lat2)) *
+        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+
+      return earthRadius * 2 * Math.atan2(
+        Math.sqrt(a),
+        Math.sqrt(1 - a)
+      );
+    }
+
+    // 현재 위치 주변에서 가장 가까운 지하철역 찾기
+    function findNearestStation() {
+      if (!currentPosition) return;
+
+      const requestVersion = ++searchVersion;
+
+      statusText.textContent = "가장 가까운 지하철역을 찾고 있습니다.";
+      stationInfo.hidden = true;
+
+      // 현재 위치를 기준으로 지하철역 키워드 검색
+      placesService.keywordSearch(
+        "지하철역",
+        function (data, status) {
+          // 새 검색이 시작되었다면 이전 응답 무시
+          if (requestVersion !== searchVersion) return;
+
+          if (
+            status !== kakao.maps.services.Status.OK ||
+            !data ||
+            data.length === 0
+          ) {
+            statusText.textContent =
+              "주변 지하철역을 찾지 못했습니다. 다른 지역에서 다시 시도해 주세요.";
+            return;
+          }
+
+          // 검색 결과 중 현재 위치와의 직선거리가 가장 짧은 역 선택
+          let closestPlace = null;
+          let shortestDistance = Infinity;
+
+          data.forEach(function (place) {
+            const distance = calculateDistance(
+              currentPosition.getLat(),
+              currentPosition.getLng(),
+              Number(place.y),
+              Number(place.x)
+            );
+
+            if (distance < shortestDistance) {
+              shortestDistance = distance;
+              closestPlace = place;
+            }
+          });
+
+          if (!closestPlace) {
+            statusText.textContent = "가까운 지하철역을 찾지 못했습니다.";
+            return;
+          }
+
+          nearestStation = closestPlace;
+
+          const stationPosition = new kakao.maps.LatLng(
+            Number(closestPlace.y),
+            Number(closestPlace.x)
+          );
+
+          // 가장 가까운 지하철역을 노란색 마커로 표시
+          stationMarker = new kakao.maps.Marker({
+            map: map,
+            position: stationPosition,
+            image: createMarkerImage("#f4c20d"),
+            title: closestPlace.place_name,
+            zIndex: 4
+          });
+
+          // 역 마커를 누르면 역 이름과 주소 표시
+          kakao.maps.event.addListener(stationMarker, "click", function () {
+            showPlaceOnMap(closestPlace, stationMarker);
+          });
+
+          // 지하철역 이름과 거리 표시
+          stationInfo.textContent =
+            "가장 가까운 지하철역: " +
+            closestPlace.place_name +
+            " (직선거리 약 " +
+            formatDistance(shortestDistance) +
+            ")";
+
+          stationInfo.hidden = false;
+
+          // 선택한 역 주변의 음식점 또는 카페 검색
+          searchNearbyPlaces(activeCategory, stationPosition);
+        },
+        {
+          location: currentPosition,
+          radius: 20000,
+          sort: kakao.maps.services.SortBy.DISTANCE,
+          size: 15
+        }
+      );
+    }
+
+    // 거리를 읽기 쉬운 단위로 표시
+    function formatDistance(distance) {
+      if (distance < 1000) {
+        return Math.round(distance) + "m";
+      }
+
+      return (distance / 1000).toFixed(1) + "km";
+    }
+
     // 탭 버튼을 눌렀을 때 실행
     tabButtons.forEach(function (button) {
       button.addEventListener("click", function () {
-        // 선택한 카테고리 코드 저장
         activeCategory = button.dataset.category;
 
-        // 선택된 탭의 디자인 변경
+        // 선택한 탭의 디자인 변경
         tabButtons.forEach(function (tab) {
           const isActive = tab === button;
+
           tab.classList.toggle("active", isActive);
           tab.setAttribute("aria-pressed", String(isActive));
         });
 
-        // 이전 검색 결과 제거
+        // 기존 시설 마커와 목록 제거
         clearResults();
 
-        // 이전에 진행 중이던 검색 응답 무효화
+        // 이전 검색 요청 무효화
         searchVersion++;
 
-        if (!mapReady) {
-          statusText.textContent = "지도가 아직 준비되지 않았습니다.";
-          return;
-        }
-
-        if (!currentPosition) {
+        if (!mapReady || !currentPosition) {
           statusText.textContent =
-            "현재 위치를 확인할 수 없습니다. 위치 권한을 확인해 주세요.";
+            "현재 위치를 확인하고 있습니다. 잠시 기다려 주세요.";
           return;
         }
 
-        // 선택한 카테고리로 주변 시설 검색
-        searchNearbyPlaces(activeCategory);
+        if (!nearestStation) {
+          findNearestStation();
+          return;
+        }
+
+        const stationPosition = new kakao.maps.LatLng(
+          Number(nearestStation.y),
+          Number(nearestStation.x)
+        );
+
+        // 선택한 탭의 시설을 가장 가까운 역 주변에서 검색
+        searchNearbyPlaces(activeCategory, stationPosition);
       });
     });
 
-    // 현재 위치 주변의 카테고리별 시설 검색
-    function searchNearbyPlaces(categoryCode) {
-      if (!mapReady || !currentPosition) {
-        return;
-      }
+    // 지하철역 주변에서 음식점 또는 카페 검색
+    function searchNearbyPlaces(categoryCode, searchPosition) {
+      if (!mapReady || !searchPosition) return;
 
-      // 이전 결과를 삭제하고 새 검색 요청 번호 생성
       clearResults();
+
       const requestVersion = ++searchVersion;
 
-      statusText.textContent = "주변 시설을 검색하고 있습니다.";
+      const categoryName = categoryCode === "FD6" ? "음식점" : "카페";
+
+      statusText.textContent =
+        "가까운 지하철역 주변 " + categoryName + "을(를) 검색하고 있습니다.";
 
       placesService.categorySearch(
         categoryCode,
         function (data, status) {
-          // 더 최근 검색이 시작되었다면 이전 응답 무시
+          // 이전 검색 결과가 뒤늦게 도착하면 무시
           if (
             requestVersion !== searchVersion ||
             categoryCode !== activeCategory
@@ -510,14 +648,16 @@
 
           if (status === kakao.maps.services.Status.OK) {
             displayPlaces(data);
+
             statusText.textContent =
-              "주변 시설 " + data.length + "개를 찾았습니다.";
+              "지하철역 주변 " + categoryName + " " +
+              data.length + "개를 찾았습니다.";
 
           } else if (
             status === kakao.maps.services.Status.ZERO_RESULT
           ) {
             statusText.textContent =
-              "주변에 검색 결과가 없습니다.";
+              "지하철역 주변에 검색 결과가 없습니다.";
 
           } else {
             statusText.textContent =
@@ -525,10 +665,10 @@
           }
         },
         {
-          // 현재 위치를 검색 중심으로 설정
-          location: currentPosition,
+          // 가장 가까운 지하철역을 검색 중심으로 설정
+          location: searchPosition,
 
-          // 검색 반경 1.5km
+          // 역 주변 1.5km 이내 검색
           radius: 1500,
 
           // 가까운 장소부터 정렬
@@ -540,7 +680,7 @@
       );
     }
 
-    // 키워드로 장소 검색
+    // 검색창에 입력한 키워드로 장소 검색
     function searchPlaces(keyword) {
       if (!mapReady || !placesService) {
         statusText.textContent = "지도가 아직 준비되지 않았습니다.";
@@ -555,33 +695,39 @@
         return;
       }
 
-      // 이전 결과 제거 및 검색 요청 번호 갱신
+      // 기존 시설 결과 삭제
       clearResults();
+
       const requestVersion = ++searchVersion;
 
       statusText.textContent = "장소를 검색하고 있습니다.";
       searchButton.disabled = true;
 
-      // 현재 위치가 있으면 가까운 장소부터 검색
-      const searchOptions = currentPosition
+      // 가장 가까운 지하철역을 검색 중심으로 사용
+      const searchOptions = nearestStation
         ? {
-            location: currentPosition,
+            location: new kakao.maps.LatLng(
+              Number(nearestStation.y),
+              Number(nearestStation.x)
+            ),
             sort: kakao.maps.services.SortBy.DISTANCE
           }
-        : {};
+        : {
+            location: currentPosition,
+            sort: kakao.maps.services.SortBy.DISTANCE
+          };
 
       placesService.keywordSearch(
         searchKeyword,
         function (data, status) {
           searchButton.disabled = false;
 
-          // 더 최근 요청이 있으면 이전 결과 무시
-          if (requestVersion !== searchVersion) {
-            return;
-          }
+          // 더 최근 검색 요청이 있으면 이전 응답 무시
+          if (requestVersion !== searchVersion) return;
 
           if (status === kakao.maps.services.Status.OK) {
             displayPlaces(data);
+
             statusText.textContent =
               "검색 결과 " + data.length + "개를 찾았습니다.";
 
@@ -591,8 +737,7 @@
             statusText.textContent = "검색 결과가 없습니다.";
 
           } else {
-            statusText.textContent =
-              "검색 중 오류가 발생했습니다.";
+            statusText.textContent = "검색 중 오류가 발생했습니다.";
           }
         },
         searchOptions
@@ -604,7 +749,6 @@
       const bounds = new kakao.maps.LatLngBounds();
 
       places.forEach(function (place) {
-        // 장소 좌표 생성
         const position = new kakao.maps.LatLng(
           Number(place.y),
           Number(place.x)
@@ -612,7 +756,7 @@
 
         bounds.extend(position);
 
-        // 시설을 파란색 마커로 표시
+        // 음식점이나 카페를 파란색 마커로 표시
         const marker = new kakao.maps.Marker({
           map: map,
           position: position,
@@ -674,17 +818,12 @@
           item.appendChild(link);
         }
 
-        // 마커나 목록을 선택하면 장소 이름과 주소 표시
+        // 장소를 선택하면 지도에 이름과 주소 표시
         function selectPlace() {
           showPlaceOnMap(place, marker);
         }
 
-        kakao.maps.event.addListener(
-          marker,
-          "click",
-          selectPlace
-        );
-
+        kakao.maps.event.addListener(marker, "click", selectPlace);
         item.addEventListener("click", selectPlace);
 
         // 키보드로도 장소 선택 가능
@@ -707,7 +846,18 @@
           )
         );
         map.setLevel(4);
+
       } else if (places.length > 1) {
+        // 지하철역과 검색 결과가 함께 보이도록 지도 범위 설정
+        if (nearestStation) {
+          bounds.extend(
+            new kakao.maps.LatLng(
+              Number(nearestStation.y),
+              Number(nearestStation.x)
+            )
+          );
+        }
+
         map.setBounds(bounds);
       }
     }
@@ -741,9 +891,8 @@
       infoWindow.open(map, marker);
     }
 
-    // 기존 시설 마커와 리스트 제거
+    // 기존 시설 마커와 목록 제거
     function clearResults() {
-      // 기존 시설 마커 삭제
       placeMarkers.forEach(function (marker) {
         marker.setMap(null);
       });
@@ -753,12 +902,24 @@
       // 왼쪽 결과 목록 삭제
       resultList.replaceChildren();
 
-      // 열려 있는 팝업 닫기
+      // 열려 있는 장소 팝업 닫기
       if (infoWindow) {
         infoWindow.close();
       }
 
-      // 현재 위치 마커는 유지
+      // 현재 위치와 지하철역 마커는 유지
+    }
+
+    // 기존 지하철역 마커 제거
+    function clearStation() {
+      if (stationMarker) {
+        stationMarker.setMap(null);
+        stationMarker = null;
+      }
+
+      nearestStation = null;
+      stationInfo.hidden = true;
+      stationInfo.textContent = "";
     }
 
     // 검색창 제출 시 키워드 검색 실행
@@ -774,3 +935,4 @@
   </script>
 </body>
 </html>
+
